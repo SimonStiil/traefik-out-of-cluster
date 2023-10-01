@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rancher-info-agent
+  namespace: rancher-info-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: rancher-info-agent
+  template:
+    metadata:
+      labels:
+        app: rancher-info-agent
+    spec:
+      containers:
+      - name: agent
+        image: simonstiil/rancher-info-agent:main
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+      serviceAccountName: ro-clusters-projects
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rancher-info-agent
+  namespace: rancher-info-agent
+spec:
+  selector:
+    app: rancher-info-agent
+  ports:
+    - protocol: TCP
+      port: 8080
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rancher-info-agent
+  namespace: rancher-info-agent
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+spec:
+  rules:
+  - host: rancher-info-agent.test.stiil.dk
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: rancher-info-agent
+            port:
+              number: 8080

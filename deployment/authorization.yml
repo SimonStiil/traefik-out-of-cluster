@@ -1,0 +1,33 @@
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ro-clusters-projects-role
+rules:
+- apiGroups:
+  - management.cattle.io
+  resources:
+  - projects
+  - clusters
+  verbs:
+  - get
+  - list
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ro-clusters-projects
+  namespace: rancher-info-agent
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ro-clusters-projects-rolebinding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: ro-clusters-projects-role
+subjects:
+- kind: ServiceAccount
+  name: ro-clusters-projects
+  namespace: rancher-info-agent
