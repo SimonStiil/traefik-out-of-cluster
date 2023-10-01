@@ -1,34 +1,34 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: rancher-info-agent
-  namespace: rancher-info-agent
+  name: traefik-out-of-cluster
+  namespace: traefik-out-of-cluster
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: rancher-info-agent
+      app: traefik-out-of-cluster
   template:
     metadata:
       labels:
-        app: rancher-info-agent
+        app: traefik-out-of-cluster
     spec:
       containers:
       - name: agent
-        image: simonstiil/rancher-info-agent:main
+        image: simonstiil/traefik-out-of-cluster:main
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
-      serviceAccountName: ro-clusters-projects
+      serviceAccountName: traefik-out-of-cluster
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: rancher-info-agent
-  namespace: rancher-info-agent
+  name: traefik-out-of-cluster
+  namespace: traefik-out-of-cluster
 spec:
   selector:
-    app: rancher-info-agent
+    app: traefik-out-of-cluster
   ports:
     - protocol: TCP
       port: 8080
@@ -37,20 +37,20 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: rancher-info-agent
-  namespace: rancher-info-agent
+  name: traefik-out-of-cluster
+  namespace: traefik-out-of-cluster
   annotations:
     kubernetes.io/ingress.class: traefik
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
 spec:
   rules:
-  - host: rancher-info-agent.test.stiil.dk
+  - host: traefik-out-of-cluster.k3s.stiil.dk
     http:
       paths:
       - path: /
         pathType: Prefix
         backend:
           service:
-            name: rancher-info-agent
+            name: traefik-out-of-cluster
             port:
               number: 8080
