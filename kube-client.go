@@ -127,6 +127,7 @@ func (kube *KubeClient) getClusters() (*traefikconfig.Configuration, error) {
 				EntryPoints: []string{DynamicConfig.GetString("Traefik.HTTPS.Entrypoint.Name")},
 				Rule:        fmt.Sprintf("HostSNI(`%v`)", hostname),
 				Service:     TCPServiceName,
+				TLS:         &traefikconfig.RouterTCPTLSConfig{Passthrough: true},
 			}
 			total_rules += 1
 		}
