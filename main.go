@@ -15,25 +15,11 @@ import (
 )
 
 var (
-	//	config        Config
-	DynamicConfig viper.Viper
-	Kubeconfig    string
-	/*
-		debug              bool
-		prometheusEnabled  bool
-		prometheusEndpoint string
-		healthEndpoint     string
-		kubeconfig         string
-		port               string
-		ingressIP          string
-		web                string
-		webPort            string
-		websecure          string
-		websecurePort      string
-		onlyRootEndpoint   bool
-	*/
-	requests = promauto.NewCounterVec(prometheus.CounterOpts{
-		Name: "http_endpoint_equests_count",
+	Config ConfigType
+	//DynamicConfig viper.Viper
+	Kubeconfig string
+	requests   = promauto.NewCounterVec(prometheus.CounterOpts{
+		Name: "http_endpoint_requests_count",
 		Help: "The amount of requests to an endpoint",
 	}, []string{"endpoint", "method"},
 	)
@@ -44,6 +30,10 @@ var (
 		Name: "routes_created_count",
 		Help: "Amount of routes created in the config"})
 
+	broken_ingress_count = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "broken_ingress_count",
+		Help: "Amount of exported ingresses found in cluster that does not have a loadbalancer ip"})
+
 	client KubeClient
 )
 
@@ -52,10 +42,10 @@ type Health struct {
 }
 
 func HealthActuator(w http.ResponseWriter, r *http.Request) {
-	if DynamicConfig.GetBool("Prometheus.Enabled") {
+	if Config.Prometheus.Enabled {
 		requests.WithLabelValues(r.URL.EscapedPath(), r.Method).Inc()
 	}
-	if !(r.URL.Path == DynamicConfig.GetString("Health.Endpoint")) {
+	if !(r.URL.Path == Config.Health.Endpoint) {
 		log.Printf("@I %v %v %v - HealthActuator\n", r.Method, r.URL.Path, 404)
 		http.NotFoundHandler().ServeHTTP(w, r)
 		return
@@ -68,10 +58,10 @@ func HealthActuator(w http.ResponseWriter, r *http.Request) {
 }
 
 func MainHandler(w http.ResponseWriter, r *http.Request) {
-	if DynamicConfig.GetBool("Prometheus.Enabled") {
+	if Config.Prometheus.Enabled {
 		requests.WithLabelValues(r.URL.EscapedPath(), r.Method).Inc()
 	}
-	clusterList, err := client.CetClusters()
+	clusterList, err := client.CetTraefikConfiguration()
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("500 Internal Server Error"))
@@ -84,39 +74,39 @@ func MainHandler(w http.ResponseWriter, r *http.Request) {
 	return
 }
 
-/*
-type Config struct {
-	Debug              bool   `mapstructure:"TOOC_DEBUG"`
-	Port               string `mapstructure:"TOOC_PORT"`
-	IngressIP          string `mapstructure:"TOOC_CLUSTER_INGRESS_IP"`
-	Kubeconfig         string `mapstructure:"TOOC_CLUSTER_KUBECONFIG"`
-	HTTPEndpointName   string `mapstructure:"TOOC_TRAEFIK_HTTP_ENRYPOINT_NAME"`
-	HTTPEndpointPort   string `mapstructure:"TOOC_TRAEFIK_HTTP_ENRYPOINT_PORT"`
-	HTTPSEndpointName  string `mapstructure:"TOOC_TRAEFIK_HTTPS_ENRYPOINT_NAME"`
-	HTTPSEndpointPort  string `mapstructure:"TOOC_TRAEFIK_HTTPS_ENRYPOINT_PORT"`
-	PrometheusEnabled  bool   `mapstructure:"TOOC_PROMETHEUS_ENABLED"`
-	PrometheusEndpoint string `mapstructure:"TOOC_PROMETHEUS_ENDPOINT"`
-	HealthEndpoint     string `mapstructure:"TOOC_HEALTH_ENDPOINT"`
+type ConfigType struct {
+	Debug      bool             `mapstructure:"Debug"`
+	Port       string           `mapstructure:"Port"`
+	Cluster    ClusterConfig    `mapstructure:"Cluster"`
+	Traefik    TraefikConfig    `mapstructure:"Traefik"`
+	Prometheus PrometheusConfig `mapstructure:"Prometheus"`
+	Health     HealthConfig     `mapstructure:"Health"`
 }
-func LoadConfig(path string) (config Config, err error) {
-	viper.AddConfigPath(path)
-	viper.SetConfigName("app")
-	viper.SetConfigType("env")
-
-	viper.AutomaticEnv()
-
-	err = viper.ReadInConfig()
-	if err != nil {
-		return
-	}
-
-	err = viper.Unmarshal(&config)
-	return
+type ClusterConfig struct {
+	IngressIP  string `mapstructure:"IngressIP"`
+	Kubeconfig string `mapstructure:"Kubeconfig"`
 }
-*/
+type TraefikConfig struct {
+	HTTP  HTTPConfig `mapstructure:"HTTP"`
+	HTTPS HTTPConfig `mapstructure:"HTTPS"`
+}
+type HTTPConfig struct {
+	Entrypoint EntrypointConfig `mapstructure:"Entrypoint"`
+}
+type EntrypointConfig struct {
+	Name string `mapstructure:"Name"`
+	Port string `mapstructure:"Port"`
+}
+type PrometheusConfig struct {
+	Enabled  bool   `mapstructure:"Enabled"`
+	Endpoint string `mapstructure:"Endpoint"`
+}
+type HealthConfig struct {
+	Endpoint string `mapstructure:"Endpoint"`
+}
 
 func main() {
-	DynamicConfig = *viper.New()
+	DynamicConfig := *viper.New()
 	DynamicConfig.SetEnvPrefix("TOOC")
 	DynamicConfig.SetDefault("Debug", false)
 	DynamicConfig.SetDefault("Port", 8080)
@@ -130,16 +120,11 @@ func main() {
 	DynamicConfig.SetDefault("Prometheus.Endpoint", "/metrics")
 	DynamicConfig.SetDefault("Health.Endpoint", "/health")
 	DynamicConfig.AutomaticEnv()
-	/*
-		err := DynamicConfig.ReadInConfig()
-		if err != nil {
-			log.Fatalf("Error loading config: %+v", err)
-		}
-	*/
-	if DynamicConfig.GetBool("Debug") {
+	DynamicConfig.Unmarshal(&Config)
+	if Config.Debug {
 		log.Println("@D Debugging enabled")
 	}
-	Kubeconfig = DynamicConfig.GetString("Cluster.Kubeconfig")
+	Kubeconfig = Config.Cluster.Kubeconfig
 	if Kubeconfig == "" {
 		if home := homedir.HomeDir(); home != "" {
 			homeConfig := filepath.Join(home, ".kube", "config")
@@ -148,16 +133,15 @@ func main() {
 			}
 		}
 	}
-
-	if DynamicConfig.GetBool("Prometheus.Enabled") {
-		log.Printf("@I Metrics enabled at %v\n", DynamicConfig.GetString("Prometheus.Endpoint"))
-		http.Handle(DynamicConfig.GetString("Prometheus.Endpoint"), promhttp.Handler())
+	if Config.Prometheus.Enabled {
+		log.Printf("@I Metrics enabled at %v\n", Config.Prometheus.Endpoint)
+		http.Handle(Config.Prometheus.Endpoint, promhttp.Handler())
 	}
 
 	client = KubeClient{}
-	http.HandleFunc(DynamicConfig.GetString("Health.Endpoint"), HealthActuator)
+	http.HandleFunc(Config.Health.Endpoint, HealthActuator)
 	http.HandleFunc("/", MainHandler)
 
-	log.Printf("@I Serving on port %v\n", DynamicConfig.GetString("Port"))
-	log.Fatal(http.ListenAndServe(":"+DynamicConfig.GetString("Port"), nil))
+	log.Printf("@I Serving on port %v\n", Config.Port)
+	log.Fatal(http.ListenAndServe(":"+Config.Port, nil))
 }
