@@ -1,0 +1,2 @@
+kubectl -n traefik-out-of-cluster get secret mtls -o json | jq -r ".data.\"tls.crt\"" |base64 -d >mtls.crt
+kubectl -n traefik-out-of-cluster get secret mtls -o json | jq -r ".data.\"tls.key\"" |base64 -d >mtls.key

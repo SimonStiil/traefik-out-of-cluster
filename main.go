@@ -124,7 +124,7 @@ func main() {
 	DynamicConfig.SetDefault("Cluster.Kubeconfig", "")
 	DynamicConfig.SetDefault("Traefik.HTTP.Entrypoint.Name", "web")
 	DynamicConfig.SetDefault("Traefik.HTTP.Entrypoint.Port", 80)
-	DynamicConfig.SetDefault("Traefik.HTTPS.Entrypoint.Name", "web")
+	DynamicConfig.SetDefault("Traefik.HTTPS.Entrypoint.Name", "websecure")
 	DynamicConfig.SetDefault("Traefik.HTTPS.Entrypoint.Port", 443)
 	DynamicConfig.SetDefault("Prometheus.Enabled", true)
 	DynamicConfig.SetDefault("Prometheus.Endpoint", "/metrics")

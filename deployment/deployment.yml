@@ -19,7 +19,7 @@ spec:
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
-      serviceAccountName: traefik-out-of-cluster
+      serviceAccountName: ro-ingress-services-routes
 ---
 apiVersion: v1
 kind: Service
@@ -42,6 +42,7 @@ metadata:
   annotations:
     kubernetes.io/ingress.class: traefik
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls.options: traefik-out-of-cluster-mtls@kubernetescrd
 spec:
   rules:
   - host: traefik-out-of-cluster.k3s.stiil.dk

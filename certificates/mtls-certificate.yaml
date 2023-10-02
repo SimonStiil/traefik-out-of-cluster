@@ -1,0 +1,27 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: tmls
+  namespace: traefik-out-of-cluster
+spec:
+  secretName: mtls
+  duration: 8760h # 90d
+  renewBefore: 360h # 15d
+  subject:
+    organizations:
+      - traefik-out-of-cluster
+  commonName: mtls.traefik-out-of-cluster.local
+  isCA: false
+  usages:
+    - server auth
+    - client auth
+  dnsNames:
+    - mtls.traefik-out-of-cluster.local
+  issuerRef:
+    name: intermediate-ca
+    # We can reference ClusterIssuers by changing the kind here.
+    # The default value is Issuer (i.e. a locally namespaced Issuer)
+    kind: Issuer
+    # This is optional since cert-manager will default to this value however
+    # if you are using an external issuer, change this to that issuer group.
+    group: cert-manager.io

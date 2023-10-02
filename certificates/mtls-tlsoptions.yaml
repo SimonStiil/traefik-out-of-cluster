@@ -1,0 +1,11 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: TLSOption
+metadata:
+  name: mtls
+  namespace: traefik-out-of-cluster
+spec:
+  clientAuth:
+    clientAuthType: RequireAndVerifyClientCert
+    secretNames:
+    - intermediate-ca
+  minVersion: VersionTLS12
