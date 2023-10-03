@@ -161,7 +161,7 @@ func (kube *KubeClient) getTraefikConfiguration() (*traefikconfig.Configuration,
 			continue
 		}
 		Service := kube.getAppendServiceNames(traefikConfig, ip)
-		name := CommonName + ingress.ObjectMeta.Namespace + "-" + ingress.ObjectMeta.Name
+		name := CommonName + "-" + ingress.ObjectMeta.Namespace + "-" + ingress.ObjectMeta.Name
 		for id, rule := range ingress.Spec.Rules {
 			hostname := rule.Host
 			traefikConfig.HTTP.Routers[fmt.Sprintf("%v-%v", name, id)] = &traefikconfig.Router{

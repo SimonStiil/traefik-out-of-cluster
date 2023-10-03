@@ -44,6 +44,91 @@ Configuration is done throug Environment variables
 | TOOC_PROMETHEUS_ENDPOINT | Path where to find prometheus endpoint (/metrics) |
 | TOOC_HEALTH_ENDPOINT | Path where to find health endpoint (/health) |
 
+## Example Traefik configuration generated from Single ingress
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  annotations:
+    kubernetes.io/ingress.class: traefik-traefik
+    traefik.ingress.kubernetes.io/router.tls: "true"
+  labels:
+    app: whoami
+    export: "true"
+  name: whoami
+  namespace: test
+spec:
+  rules:
+  - host: whoami.k3s.home
+    http:
+      paths:
+      - backend:
+          service:
+            name: whoami
+            port:
+              number: 80
+        path: /
+        pathType: Prefix
+status:
+  loadBalancer:
+    ingress:
+    - ip: 192.168.1.20
+```
+
+```json
+{
+  "http":{
+    "routers":{
+      "tooc-test-whoami-0":{
+        "entryPoints":[
+          "web"
+        ],
+        "service":"tooc-http-0",
+        "rule":"Host(`whoami.k3s.home`)"
+      }
+    },
+    "services":{
+      "tooc-http-0":{
+        "loadBalancer":{
+          "servers":[
+            {
+              "url":"http://192.168.1.20:80/"
+            }
+          ],
+          "passHostHeader":null
+        }
+      }
+    }
+  },
+  "tcp":{
+    "routers":{
+      "tooc-test-whoami-0":{
+        "entryPoints":[
+          "web"
+        ],
+        "service":"tooc-tcp-tls-0",
+        "rule":"HostSNI(`whoami.k3s.home`)",
+        "tls":{
+          "passthrough":true
+        }
+      }
+    },
+    "services":{
+      "tooc-tcp-tls-0":{
+        "loadBalancer":{
+          "servers":[
+            {
+              "address":"192.168.1.20:443"
+            }
+          ]
+        }
+      }
+    }
+  }
+}
+
+```
+
 ## Example External Traefik configuration
 ```yaml
 providers:
