@@ -19,6 +19,13 @@ spec:
         imagePullPolicy: Always
         ports:
         - containerPort: 8080
+        env:
+        - name: TOOC_CLUSTER_INGRESS_ALT_HTTP_PORT
+          value: "7080"
+        - name: TOOC_CLUSTER_INGRESS_ALT_HTTPS_PORT
+          value: "7443"
+        - name: TOOC_CLUSTER_INGRESS_ADDRESS
+          value: 192.168.20
       serviceAccountName: ro-ingress-services-routes
 ---
 apiVersion: v1

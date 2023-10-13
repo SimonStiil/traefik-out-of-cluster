@@ -7,6 +7,7 @@ import (
 	"time"
 
 	traefikconfig "github.com/traefik/traefik/v3/pkg/config/dynamic"
+	traefiktls "github.com/traefik/traefik/v3/pkg/tls"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -14,15 +15,19 @@ import (
 )
 
 type KubeClient struct {
-	context         context.Context
-	age             time.Time
-	lastResult      *traefikconfig.Configuration
-	client          *kubernetes.Clientset
-	nextID          int
-	serviceNamesMap map[string]*Service
+	context                        context.Context
+	age                            time.Time
+	lastResult                     *traefikconfig.Configuration
+	client                         *kubernetes.Clientset
+	nextServiceID                  int
+	nextServerTransportID          int
+	serviceNamesMap                map[string]*Service
+	hostReWriteServersTransportMap map[string]string
+	False                          bool
+	WarnPrintStaggerCount          map[string]int
 }
 
-func (kube *KubeClient) CetTraefikConfiguration() (*traefikconfig.Configuration, error) {
+func (kube *KubeClient) GetTraefikConfiguration() (*traefikconfig.Configuration, error) {
 	var err error = nil
 	if kube.client == nil {
 		if Config.Debug {
@@ -57,6 +62,7 @@ func (kube *KubeClient) CetTraefikConfiguration() (*traefikconfig.Configuration,
 func (kube *KubeClient) newConfig() error {
 	var config *rest.Config
 	var err error
+	kube.False = false
 	if Kubeconfig != "" {
 		log.Printf("@I Using kubeconfig in: %v\n", Kubeconfig)
 		config, err = clientcmd.BuildConfigFromFlags("", Kubeconfig)
@@ -80,46 +86,156 @@ func (kube *KubeClient) newConfig() error {
 }
 
 const (
-	CommonName      = "tooc"
-	HTTPServiceName = CommonName + "-http"
-	TCPServiceName  = CommonName + "-tcp-tls"
+	CommonName                = "tooc"
+	HTTPServiceName           = CommonName + "-http"
+	HTTPSServiceName          = CommonName + "-https"
+	TCPServiceName            = CommonName + "-tcp-tls"
+	ServerTransportName       = CommonName + "-transport"
+	LablePrefix               = "tooc.k8s.stiil.dk/"
+	LableExported             = LablePrefix + "export"
+	ExportedTrue              = "true" // Only handled if true
+	LableSSLForwardType       = LablePrefix + "ssl-type"
+	SSLForwardTypePassthrough = "passthrough" //Default
+	SSLForwardTypeReEncrypt   = "reencrypt"
+	LableRewriteHostname      = LablePrefix + "rewrite-hostname" // Free String
 )
 
 type Service struct {
-	IPAddress       string
-	HTTPServiceName string
-	TCPServiceName  string
+	IPAddress        string
+	HTTPServiceName  string
+	HTTPSServiceName string
+	TCPServiceName   string
 }
 
-func (kube *KubeClient) getAppendServiceNames(config *traefikconfig.Configuration, ip string) *Service {
-	_, ok := kube.serviceNamesMap[ip]
+func (kube *KubeClient) getAppendServiceNames(config *traefikconfig.Configuration, ip string, remoteHost string) *Service {
+	servertransportName := kube.getAppendRewriteServersTransport(config, remoteHost)
+	remoteHostname := ip
+	if servertransportName != "" {
+		remoteHostname = remoteHost
+	}
+	ipTransportName := fmt.Sprintf("%v-%v", remoteHostname, servertransportName)
+	_, ok := kube.serviceNamesMap[ipTransportName]
 	if !ok {
-		CurrentHTTPServiceName := fmt.Sprintf("%v-%v", HTTPServiceName, kube.nextID)
-		CurrentTCPServiceName := fmt.Sprintf("%v-%v", TCPServiceName, kube.nextID)
-		kube.serviceNamesMap[ip] = &Service{
-			IPAddress:       ip,
-			HTTPServiceName: CurrentHTTPServiceName,
-			TCPServiceName:  CurrentTCPServiceName,
+		CurrentHTTPServiceName := fmt.Sprintf("%v-%v", HTTPServiceName, kube.nextServiceID)
+		CurrentHTTPSServiceName := fmt.Sprintf("%v-%v", HTTPSServiceName, kube.nextServiceID)
+		CurrentTCPServiceName := fmt.Sprintf("%v-%v", TCPServiceName, kube.nextServiceID)
+		kube.serviceNamesMap[ipTransportName] = &Service{
+			IPAddress:        ip,
+			HTTPServiceName:  CurrentHTTPServiceName,
+			HTTPSServiceName: CurrentHTTPSServiceName,
+			TCPServiceName:   CurrentTCPServiceName,
 		}
 		config.HTTP.Services[CurrentHTTPServiceName] = &traefikconfig.Service{
-			LoadBalancer: &traefikconfig.ServersLoadBalancer{
-				Servers: []traefikconfig.Server{
-					{
-						URL: fmt.Sprintf("http://%v:%v/", ip,
-							Config.Traefik.HTTP.Entrypoint.Port),
-					},
-				}}}
+			LoadBalancer: kube.createServersLoadBalancer(remoteHostname, servertransportName, false)}
+		config.HTTP.Services[CurrentHTTPSServiceName] = &traefikconfig.Service{
+			LoadBalancer: kube.createServersLoadBalancer(remoteHostname, servertransportName, true)}
+		tcpLoadbalancer := &traefikconfig.TCPServersLoadBalancer{
+			Servers: []traefikconfig.TCPServer{
+				{
+					Address: fmt.Sprintf("%v:%v", remoteHostname,
+						Config.Cluster.Ingress.HTTPS.Port),
+				},
+			}}
 		config.TCP.Services[CurrentTCPServiceName] = &traefikconfig.TCPService{
-			LoadBalancer: &traefikconfig.TCPServersLoadBalancer{
-				Servers: []traefikconfig.TCPServer{
-					{
-						Address: fmt.Sprintf("%v:%v", ip,
-							Config.Traefik.HTTPS.Entrypoint.Port),
-					},
-				}}}
-		kube.nextID += 1
+			LoadBalancer: tcpLoadbalancer}
+		kube.nextServiceID += 1
 	}
-	return kube.serviceNamesMap[ip]
+	return kube.serviceNamesMap[ipTransportName]
+}
+func (kube *KubeClient) staggeredWarnning(name string) {
+	if kube.WarnPrintStaggerCount == nil {
+		kube.WarnPrintStaggerCount = make(map[string]int)
+	}
+	WarnPrintStaggerCount, _ := kube.WarnPrintStaggerCount[name]
+	if WarnPrintStaggerCount == 0 {
+		log.Printf("@W %v lable used but %v is not defined, this may result in issues if forwardedHeaders are trusted\n", LableRewriteHostname, name)
+	}
+	if WarnPrintStaggerCount < 100 {
+		kube.WarnPrintStaggerCount[name] = WarnPrintStaggerCount + 1
+	} else {
+		kube.WarnPrintStaggerCount[name] = 0
+	}
+}
+func (kube *KubeClient) getLBConfig(servertransportName string, https bool) *PortConfig {
+	if servertransportName == "" {
+		if !https {
+			return &Config.Cluster.Ingress.HTTP
+		} else {
+			return &Config.Cluster.Ingress.HTTPS
+		}
+	} else {
+		if !https {
+			config := &PortConfig{
+				Port:     Config.Cluster.Ingress.Alternate.HTTP.Port,
+				Protocol: Config.Cluster.Ingress.Alternate.HTTP.Protocol,
+			}
+			if Config.Debug {
+				log.Printf("@D getLBConfig: https:%v %v %+v\n", https, servertransportName, config)
+			}
+			if config.Port == "" {
+				kube.staggeredWarnning("TOOC_CLUSTER_INGRESS_ALT_HTTP_PORT")
+				config.Port = Config.Cluster.Ingress.HTTP.Port
+			}
+			if config.Protocol == "" {
+				config.Protocol = Config.Cluster.Ingress.HTTP.Protocol
+			}
+			return config
+		} else {
+			config := &PortConfig{
+				Port:     Config.Cluster.Ingress.Alternate.HTTPS.Port,
+				Protocol: Config.Cluster.Ingress.Alternate.HTTPS.Protocol,
+			}
+			if Config.Debug {
+				log.Printf("@D getLBConfig: https:%v %v %+v\n", https, servertransportName, config)
+			}
+			if config.Port == "" {
+				kube.staggeredWarnning("TOOC_CLUSTER_INGRESS_ALT_HTTPS_PORT")
+				config.Port = Config.Cluster.Ingress.HTTPS.Port
+			}
+			if config.Protocol == "" {
+				config.Protocol = Config.Cluster.Ingress.HTTPS.Protocol
+			}
+			return config
+		}
+	}
+}
+func (kube *KubeClient) createServersLoadBalancer(remoteHostname string, servertransportName string, https bool) *traefikconfig.ServersLoadBalancer {
+	config := kube.getLBConfig(servertransportName, https)
+	if Config.Debug {
+		log.Printf("@D createServersLoadBalancer: %v %v %+v\n", remoteHostname, servertransportName, config)
+	}
+	serverLoadbalander := &traefikconfig.ServersLoadBalancer{
+		Servers: []traefikconfig.Server{
+			{
+				URL: fmt.Sprintf("%v://%v:%v/", config.Protocol, remoteHostname, config.Port),
+			},
+		},
+	}
+	if servertransportName != "" {
+		serverLoadbalander.ServersTransport = servertransportName
+		serverLoadbalander.PassHostHeader = &kube.False
+	}
+	return serverLoadbalander
+}
+
+func (kube *KubeClient) getAppendRewriteServersTransport(config *traefikconfig.Configuration, hostname string) string {
+	if hostname == "" {
+		return ""
+	}
+	_, ok := kube.hostReWriteServersTransportMap[hostname]
+	if !ok {
+		if config.HTTP.ServersTransports == nil {
+			config.HTTP.ServersTransports = make(map[string]*traefikconfig.ServersTransport)
+		}
+		CurrentServerTransportName := fmt.Sprintf("%v-%v", ServerTransportName, kube.nextServerTransportID)
+		kube.hostReWriteServersTransportMap[hostname] = CurrentServerTransportName
+		config.HTTP.ServersTransports[CurrentServerTransportName] = &traefikconfig.ServersTransport{
+			ServerName: hostname,
+			RootCAs:    []traefiktls.FileOrContent{traefiktls.FileOrContent(Config.Cluster.RootCAFilename)},
+		}
+		kube.nextServerTransportID += 1
+	}
+	return kube.hostReWriteServersTransportMap[hostname]
 }
 
 // https://github.com/traefik/traefik/tree/master/pkg/config/dynamic
@@ -128,9 +244,17 @@ func (kube *KubeClient) getTraefikConfiguration() (*traefikconfig.Configuration,
 		log.Println("@D getTraefikConfiguration: ")
 	}
 	// Implement discovery for ingress controller here: kube.client.CoreV1().Services("") set ingressIP
-	kube.nextID = 0
+	kube.nextServiceID = 0
+	kube.nextServerTransportID = 0
 	kube.serviceNamesMap = make(map[string]*Service)
-	ingresses, err := kube.client.NetworkingV1().Ingresses("").List(kube.context, metav1.ListOptions{LabelSelector: "export=true"})
+	kube.hostReWriteServersTransportMap = make(map[string]string)
+	ingresses, err := kube.client.NetworkingV1().Ingresses("").List(
+		kube.context,
+		metav1.ListOptions{
+			LabelSelector: fmt.Sprintf(
+				"%v=%v",
+				LableExported,
+				ExportedTrue)})
 	if err != nil {
 		return nil, err
 	}
@@ -147,8 +271,14 @@ func (kube *KubeClient) getTraefikConfiguration() (*traefikconfig.Configuration,
 	}
 	total_rules := 0
 	broken_rules := 0
-	for _, ingress := range ingresses.Items {
-		ip := Config.Cluster.IngressIP
+	for i, ingress := range ingresses.Items {
+		SSLForwardType, forwardOK := ingress.Labels[LableSSLForwardType]
+		if !forwardOK {
+			SSLForwardType = SSLForwardTypePassthrough
+		}
+		NewHostname, _ := ingress.Labels[LableRewriteHostname]
+
+		ip := Config.Cluster.Ingress.Address
 		// https://pkg.go.dev/k8s.io/api/networking/v1#Ingress
 		if len(ingress.Status.LoadBalancer.Ingress) > 0 {
 			ip = ingress.Status.LoadBalancer.Ingress[0].IP
@@ -160,20 +290,43 @@ func (kube *KubeClient) getTraefikConfiguration() (*traefikconfig.Configuration,
 			broken_rules += 1
 			continue
 		}
-		Service := kube.getAppendServiceNames(traefikConfig, ip)
 		name := CommonName + "-" + ingress.ObjectMeta.Namespace + "-" + ingress.ObjectMeta.Name
+		if Config.Debug {
+			log.Printf("@D %v: %v %v %v \n", i, name, SSLForwardType, NewHostname)
+		}
 		for id, rule := range ingress.Spec.Rules {
-			hostname := rule.Host
+			var currentService *Service
+			var currentHostname string
+			if NewHostname == "" {
+				currentHostname = rule.Host
+				currentService = kube.getAppendServiceNames(traefikConfig, ip, "")
+			} else {
+				currentHostname = NewHostname
+				currentService = kube.getAppendServiceNames(traefikConfig, ip, rule.Host)
+			}
+			// Path Rules example - && Path(`/traefik`))
 			traefikConfig.HTTP.Routers[fmt.Sprintf("%v-%v", name, id)] = &traefikconfig.Router{
 				EntryPoints: []string{Config.Traefik.HTTP.Entrypoint.Name},
-				Rule:        fmt.Sprintf("Host(`%v`)", hostname),
-				Service:     Service.HTTPServiceName,
+				Rule:        fmt.Sprintf("Host(`%v`)", currentHostname),
+				Service:     currentService.HTTPServiceName,
 			}
-			traefikConfig.TCP.Routers[fmt.Sprintf("%v-%v", name, id)] = &traefikconfig.TCPRouter{
-				EntryPoints: []string{Config.Traefik.HTTPS.Entrypoint.Name},
-				Rule:        fmt.Sprintf("HostSNI(`%v`)", hostname),
-				Service:     Service.TCPServiceName,
-				TLS:         &traefikconfig.RouterTCPTLSConfig{Passthrough: true},
+			if SSLForwardType == SSLForwardTypePassthrough {
+				traefikConfig.TCP.Routers[fmt.Sprintf("%v-%v-tls", name, id)] = &traefikconfig.TCPRouter{
+					EntryPoints: []string{Config.Traefik.HTTPS.Entrypoint.Name},
+					Rule:        fmt.Sprintf("HostSNI(`%v`)", currentHostname),
+					Service:     currentService.TCPServiceName,
+					TLS:         &traefikconfig.RouterTCPTLSConfig{Passthrough: true},
+				}
+			} else {
+				if SSLForwardType == SSLForwardTypeReEncrypt {
+					traefikConfig.HTTP.Routers[fmt.Sprintf("%v-%v-tls", name, id)] = &traefikconfig.Router{
+						EntryPoints: []string{Config.Traefik.HTTPS.Entrypoint.Name},
+						Rule:        fmt.Sprintf("Host(`%v`)", currentHostname),
+						Service:     currentService.HTTPSServiceName,
+					}
+				} else {
+					log.Printf("@W GetIngresses: Unsupported annotation option %v=%v", LableSSLForwardType, SSLForwardType)
+				}
 			}
 			total_rules += 1
 		}
