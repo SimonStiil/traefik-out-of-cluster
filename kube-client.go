@@ -12,13 +12,24 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+
+	// https://github.dev/traefik/traefik/blob/master/pkg/provider/kubernetes/gateway/kubernetes.go
+	gateclientset "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
+
+	//gatev1alpha2 "sigs.k8s.io/gateway-api/apis/v1alpha2"
+
+	// https://github.dev/traefik/traefik/blob/master/pkg/provider/kubernetes/crd/kubernetes.go
+	traefikclientset "github.com/traefik/traefik/v3/pkg/provider/kubernetes/crd/generated/clientset/versioned"
+	// traefikv1alpha1 "github.com/traefik/traefik/v3/pkg/provider/kubernetes/crd/traefikio/v1alpha1"
 )
 
 type KubeClient struct {
 	context                        context.Context
 	age                            time.Time
 	lastResult                     *traefikconfig.Configuration
-	client                         *kubernetes.Clientset
+	k8sClient                      *kubernetes.Clientset
+	traefikClient                  *traefikclientset.Clientset
+	gatewayClient                  *gateclientset.Clientset
 	nextServiceID                  int
 	nextServerTransportID          int
 	serviceNamesMap                map[string]*Service
@@ -29,20 +40,20 @@ type KubeClient struct {
 
 func (kube *KubeClient) GetTraefikConfiguration() (*traefikconfig.Configuration, error) {
 	var err error = nil
-	if kube.client == nil {
+	if kube.k8sClient == nil || kube.traefikClient == nil || kube.gatewayClient == nil {
 		if Config.Debug {
 			log.Println("@D No client defined, creating new client")
 		}
 		err = kube.newConfig()
 		if err != nil {
 			log.Println("@E Errer creating client configuration")
-			kube.client = nil
+			kube.k8sClient = nil
 			return nil, err
 		}
 		kube.lastResult, err = kube.getTraefikConfiguration()
 		if err != nil {
 			log.Println("@E Errer Getting ingress data, resetting client")
-			kube.client = nil
+			kube.k8sClient = nil
 			return nil, err
 		}
 		kube.age = time.Now()
@@ -51,7 +62,7 @@ func (kube *KubeClient) GetTraefikConfiguration() (*traefikconfig.Configuration,
 		kube.lastResult, err = kube.getTraefikConfiguration()
 		if err != nil {
 			log.Println("@E Errer Getting ingress data, resetting client")
-			kube.client = nil
+			kube.k8sClient = nil
 			return nil, err
 		}
 		kube.age = time.Now()
@@ -60,6 +71,9 @@ func (kube *KubeClient) GetTraefikConfiguration() (*traefikconfig.Configuration,
 }
 
 func (kube *KubeClient) newConfig() error {
+	if kube.context == nil {
+		kube.context = context.Background()
+	}
 	var config *rest.Config
 	var err error
 	kube.False = false
@@ -76,12 +90,27 @@ func (kube *KubeClient) newConfig() error {
 			return err
 		}
 	}
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return err
+	if kube.k8sClient == nil {
+		clientset, err := kubernetes.NewForConfig(config)
+		if err != nil {
+			return err
+		}
+		kube.k8sClient = clientset
 	}
-	kube.context = context.Background()
-	kube.client = clientset
+	if kube.gatewayClient == nil {
+		clientset, err := gateclientset.NewForConfig(config)
+		if err != nil {
+			return err
+		}
+		kube.gatewayClient = clientset
+	}
+	if kube.traefikClient == nil {
+		clientset, err := traefikclientset.NewForConfig(config)
+		if err != nil {
+			return err
+		}
+		kube.traefikClient = clientset
+	}
 	return nil
 }
 
@@ -107,6 +136,11 @@ type Service struct {
 	TCPServiceName   string
 }
 
+// Considder looking at:
+// https://github.com/traefik/traefik/blob/0ee377bc9f036124b063e7abc3f0958d51ace5fb/pkg/provider/kubernetes/ingress/kubernetes.go
+
+// To include Route CRD's
+// https://github.com/traefik/traefik/blob/0ee377bc9f036124b063e7abc3f0958d51ace5fb/pkg/provider/kubernetes/crd/kubernetes.go
 func (kube *KubeClient) getAppendServiceNames(config *traefikconfig.Configuration, ip string, remoteHost string) *Service {
 	servertransportName := kube.getAppendRewriteServersTransport(config, remoteHost)
 	remoteHostname := ip
@@ -248,7 +282,7 @@ func (kube *KubeClient) getTraefikConfiguration() (*traefikconfig.Configuration,
 	kube.nextServerTransportID = 0
 	kube.serviceNamesMap = make(map[string]*Service)
 	kube.hostReWriteServersTransportMap = make(map[string]string)
-	ingresses, err := kube.client.NetworkingV1().Ingresses("").List(
+	ingresses, err := kube.k8sClient.NetworkingV1().Ingresses("").List(
 		kube.context,
 		metav1.ListOptions{
 			LabelSelector: fmt.Sprintf(
@@ -323,6 +357,7 @@ func (kube *KubeClient) getTraefikConfiguration() (*traefikconfig.Configuration,
 						EntryPoints: []string{Config.Traefik.HTTPS.Entrypoint.Name},
 						Rule:        fmt.Sprintf("Host(`%v`)", currentHostname),
 						Service:     currentService.HTTPSServiceName,
+						TLS:         &traefikconfig.RouterTLSConfig{},
 					}
 				} else {
 					log.Printf("@W GetIngresses: Unsupported annotation option %v=%v", LableSSLForwardType, SSLForwardType)
