@@ -23,6 +23,10 @@ import (
 	// traefikv1alpha1 "github.com/traefik/traefik/v3/pkg/provider/kubernetes/crd/traefikio/v1alpha1"
 )
 
+// Using private functions?
+// https://medium.com/@yardenlaif/accessing-private-functions-methods-types-and-variables-in-go-951acccc05a6
+// http://www.alangpierce.com/blog/2016/03/17/adventures-in-go-accessing-unexported-functions/
+
 type KubeClient struct {
 	context                        context.Context
 	age                            time.Time
