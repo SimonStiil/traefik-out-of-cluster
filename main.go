@@ -27,9 +27,12 @@ var (
 	exported_ingress_count = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "exported_ingress_count",
 		Help: "Amount of exported ingresses found in cluster"})
-	routes_created_count = promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "routes_created_count",
-		Help: "Amount of routes created in the config"})
+	http_routes_created_count = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "http_routes_created_count",
+		Help: "Amount of HTTP routes created in the config"})
+	tcp_routes_created_count = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "tcp_routes_created_count",
+		Help: "Amount of TCP routes created in the config"})
 
 	broken_ingress_count = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "broken_ingress_count",

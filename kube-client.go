@@ -34,6 +34,7 @@ type KubeClient struct {
 	k8sClient                      *kubernetes.Clientset
 	traefikClient                  *traefikclientset.Clientset
 	gatewayClient                  *gateclientset.Clientset
+	cachedClient                   *CachedKubeClient
 	nextServiceID                  int
 	nextServerTransportID          int
 	serviceNamesMap                map[string]*Service
@@ -115,6 +116,9 @@ func (kube *KubeClient) newConfig() error {
 		}
 		kube.traefikClient = clientset
 	}
+	if kube.cachedClient == nil {
+		kube.cachedClient = initCachedKubeClient(kube)
+	}
 	return nil
 }
 
@@ -138,6 +142,14 @@ type Service struct {
 	HTTPServiceName  string
 	HTTPSServiceName string
 	TCPServiceName   string
+}
+
+type Rules struct {
+	Items       int
+	HTTPRules   int
+	TCPRules    int
+	UDPRules    int
+	BrokenRules int
 }
 
 // Considder looking at:
@@ -286,19 +298,6 @@ func (kube *KubeClient) getTraefikConfiguration() (*traefikconfig.Configuration,
 	kube.nextServerTransportID = 0
 	kube.serviceNamesMap = make(map[string]*Service)
 	kube.hostReWriteServersTransportMap = make(map[string]string)
-	ingresses, err := kube.k8sClient.NetworkingV1().Ingresses("").List(
-		kube.context,
-		metav1.ListOptions{
-			LabelSelector: fmt.Sprintf(
-				"%v=%v",
-				LableExported,
-				ExportedTrue)})
-	if err != nil {
-		return nil, err
-	}
-	if Config.Debug {
-		log.Printf("@D getTraefikConfiguration: found %v exported ingresses", len(ingresses.Items))
-	}
 	traefikConfig := &traefikconfig.Configuration{
 		HTTP: &traefikconfig.HTTPConfiguration{
 			Services: make(map[string]*traefikconfig.Service),
@@ -307,8 +306,35 @@ func (kube *KubeClient) getTraefikConfiguration() (*traefikconfig.Configuration,
 			Services: make(map[string]*traefikconfig.TCPService),
 			Routers:  make(map[string]*traefikconfig.TCPRouter)},
 	}
-	total_rules := 0
-	broken_rules := 0
+	rules, err := kube.setIngressConfiguration(traefikConfig)
+	if Config.Debug && err != nil {
+		log.Printf("@E setIngressConfiguration(Error): %+v\n", err)
+	}
+	if Config.Prometheus.Enabled {
+		exported_ingress_count.Set(float64(rules.Items))
+		http_routes_created_count.Set(float64(rules.HTTPRules))
+		tcp_routes_created_count.Set(float64(rules.TCPRules))
+		broken_ingress_count.Set(float64(rules.BrokenRules))
+	}
+	return traefikConfig, nil
+}
+
+func (kube *KubeClient) setIngressConfiguration(traefikConfig *traefikconfig.Configuration) (Rules, error) {
+	ingresses, err := kube.k8sClient.NetworkingV1().Ingresses("").List(
+		kube.context,
+		metav1.ListOptions{
+			LabelSelector: fmt.Sprintf(
+				"%v=%v",
+				LableExported,
+				ExportedTrue)})
+	rules := Rules{}
+	if err != nil {
+		return rules, err
+	}
+	if Config.Debug {
+		log.Printf("@D setIngressConfiguration: found %v exported ingresses", len(ingresses.Items))
+	}
+	rules.Items = len(ingresses.Items)
 	for i, ingress := range ingresses.Items {
 		SSLForwardType, forwardOK := ingress.Labels[LableSSLForwardType]
 		if !forwardOK {
@@ -321,11 +347,11 @@ func (kube *KubeClient) getTraefikConfiguration() (*traefikconfig.Configuration,
 		if len(ingress.Status.LoadBalancer.Ingress) > 0 {
 			ip = ingress.Status.LoadBalancer.Ingress[0].IP
 		} else {
-			log.Printf("@I getTraefikConfiguration: ingress %v %v did not contain loadbalancer IP, reverting to default\n", ingress.ObjectMeta.Namespace, ingress.ObjectMeta.Name)
+			log.Printf("@I setIngressConfiguration: ingress %v %v did not contain loadbalancer IP, reverting to default\n", ingress.ObjectMeta.Namespace, ingress.ObjectMeta.Name)
 		}
 		if ip == "" {
-			log.Println("@E getTraefikConfiguration: default ip not set aborting")
-			broken_rules += 1
+			log.Println("@E setIngressConfiguration: default ip not set aborting")
+			rules.BrokenRules += 1
 			continue
 		}
 		name := CommonName + "-" + ingress.ObjectMeta.Namespace + "-" + ingress.ObjectMeta.Name
@@ -355,6 +381,7 @@ func (kube *KubeClient) getTraefikConfiguration() (*traefikconfig.Configuration,
 					Service:     currentService.TCPServiceName,
 					TLS:         &traefikconfig.RouterTCPTLSConfig{Passthrough: true},
 				}
+				rules.TCPRules += 1
 			} else {
 				if SSLForwardType == SSLForwardTypeReEncrypt {
 					traefikConfig.HTTP.Routers[fmt.Sprintf("%v-%v-tls", name, id)] = &traefikconfig.Router{
@@ -363,17 +390,83 @@ func (kube *KubeClient) getTraefikConfiguration() (*traefikconfig.Configuration,
 						Service:     currentService.HTTPSServiceName,
 						TLS:         &traefikconfig.RouterTLSConfig{},
 					}
+					rules.HTTPRules += 1
 				} else {
-					log.Printf("@W GetIngresses: Unsupported annotation option %v=%v", LableSSLForwardType, SSLForwardType)
+					log.Printf("@W setIngressConfiguration: Unsupported annotation option %v=%v", LableSSLForwardType, SSLForwardType)
 				}
 			}
-			total_rules += 1
 		}
 	}
-	if Config.Prometheus.Enabled {
-		exported_ingress_count.Set(float64(len(ingresses.Items)))
-		routes_created_count.Set(float64(total_rules))
-		broken_ingress_count.Set(float64(broken_rules))
+	return rules, nil
+}
+func (kube *KubeClient) setHTTPRouteConfiguration(traefikConfig *traefikconfig.Configuration) (Rules, error) {
+
+	ingressesRoutes, err := kube.cachedClient.GetIngressRouteList()
+	rules := Rules{}
+	if err != nil {
+		return rules, err
 	}
-	return traefikConfig, nil
+	if Config.Debug {
+		log.Printf("@D setHTTPRouteConfiguration: found %v exported ingressesRoutes", len(ingressesRoute.Items))
+	}
+	rules.Items = len(ingressesRoutes.Items)
+	for i, ingressRoute := range ingressesRoutes.Items {
+		SSLForwardType, forwardOK := ingressRoute.Labels[LableSSLForwardType]
+		if !forwardOK {
+			SSLForwardType = SSLForwardTypePassthrough
+		}
+		NewHostname, _ := ingressRoute.Labels[LableRewriteHostname]
+
+		ip := Config.Cluster.Ingress.Address
+		// https://pkg.go.dev/k8s.io/api/networking/v1#Ingress
+		entrypoints := ingressRoute.Spec.EntryPoints
+		if ip == "" {
+			log.Println("@E setHTTPRouteConfiguration: default ip not set aborting")
+			rules.BrokenRules += 1
+			continue
+		}
+		name := CommonName + "-" + ingressRoute.ObjectMeta.Namespace + "-" + ingressRoute.ObjectMeta.Name
+		if Config.Debug {
+			log.Printf("@D setHTTPRouteConfiguration() [%v]: %v %v %v \n", i, name, SSLForwardType, NewHostname)
+		}
+		for id, route := range ingressRoute.Spec.Routes {
+			var currentService *Service
+			var matchName string
+			if NewHostname == "" {
+				matchName = route.Match
+				currentService = kube.getAppendServiceNames(traefikConfig, ip, "")
+			} else {
+				matchName = NewHostname
+				currentService = kube.getAppendServiceNames(traefikConfig, ip, rule.Host)
+			}
+			// Path Rules example - && Path(`/traefik`))
+			traefikConfig.HTTP.Routers[fmt.Sprintf("%v-%v", name, id)] = &traefikconfig.Router{
+				EntryPoints: []string{Config.Traefik.HTTP.Entrypoint.Name},
+				Rule:        fmt.Sprintf("Host(`%v`)", currentHostname),
+				Service:     currentService.HTTPServiceName,
+			}
+			if SSLForwardType == SSLForwardTypePassthrough {
+				traefikConfig.TCP.Routers[fmt.Sprintf("%v-%v-tls", name, id)] = &traefikconfig.TCPRouter{
+					EntryPoints: []string{Config.Traefik.HTTPS.Entrypoint.Name},
+					Rule:        fmt.Sprintf("HostSNI(`%v`)", currentHostname),
+					Service:     currentService.TCPServiceName,
+					TLS:         &traefikconfig.RouterTCPTLSConfig{Passthrough: true},
+				}
+				rules.TCPRules += 1
+			} else {
+				if SSLForwardType == SSLForwardTypeReEncrypt {
+					traefikConfig.HTTP.Routers[fmt.Sprintf("%v-%v-tls", name, id)] = &traefikconfig.Router{
+						EntryPoints: []string{Config.Traefik.HTTPS.Entrypoint.Name},
+						Rule:        fmt.Sprintf("Host(`%v`)", currentHostname),
+						Service:     currentService.HTTPSServiceName,
+						TLS:         &traefikconfig.RouterTLSConfig{},
+					}
+					rules.HTTPRules += 1
+				} else {
+					log.Printf("@W setHTTPRouteConfiguration: Unsupported annotation option %v=%v", LableSSLForwardType, SSLForwardType)
+				}
+			}
+		}
+	}
+	return rules, nil
 }

@@ -33,8 +33,10 @@ podTemplate(yaml: '''
             path: config.json
 ''') {
   node(POD_LABEL) {
+    String gitCommitMessage
     stage('checkout SCM') {  
-      checkout scm
+      scmData = checkout scm
+      gitCommitMessage = sh(returnStdout: true, script: "git log --format=%B -n 1 ${scmData.GIT_COMMIT}").trim()
     }
     container('golang') {
       stage('UnitTests') {
@@ -52,11 +54,13 @@ podTemplate(yaml: '''
         }
       }
     }
-    stage('Build Docker Image') {
-      container('kaniko') {
-        sh '''
-          /kaniko/executor --force --context `pwd` --log-format text --destination docker.io/simonstiil/traefik-out-of-cluster:$BRANCH_NAME
-        '''
+    if (! gitCommitMessage.startsWith(("WIP")) {
+      stage('Build Docker Image') {
+        container('kaniko') {
+          sh '''
+            /kaniko/executor --force --context `pwd` --log-format text --destination docker.io/simonstiil/traefik-out-of-cluster:$BRANCH_NAME
+          '''
+        }
       }
     }
  
