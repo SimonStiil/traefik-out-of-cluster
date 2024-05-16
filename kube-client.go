@@ -7,7 +7,7 @@ import (
 	"time"
 
 	traefikconfig "github.com/traefik/traefik/v3/pkg/config/dynamic"
-	traefiktls "github.com/traefik/traefik/v3/pkg/tls"
+	traefiktypes "github.com/traefik/traefik/v3/pkg/types"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
@@ -231,7 +231,7 @@ func (kube *KubeClient) getAppendRewriteServersTransport(config *traefikconfig.C
 		kube.hostReWriteServersTransportMap[hostname] = CurrentServerTransportName
 		config.HTTP.ServersTransports[CurrentServerTransportName] = &traefikconfig.ServersTransport{
 			ServerName: hostname,
-			RootCAs:    []traefiktls.FileOrContent{traefiktls.FileOrContent(Config.Cluster.RootCAFilename)},
+			RootCAs:    []traefiktypes.FileOrContent{traefiktypes.FileOrContent(Config.Cluster.RootCAFilename)},
 		}
 		kube.nextServerTransportID += 1
 	}
