@@ -7,7 +7,7 @@ toolchain go1.23.4
 require (
 	github.com/prometheus/client_golang v1.20.5
 	github.com/spf13/viper v1.19.0
-	github.com/traefik/traefik/v3 v3.3.0
+	github.com/traefik/traefik/v3 v3.3.1
 	k8s.io/apimachinery v0.32.0
 	k8s.io/client-go v0.32.0
 )
