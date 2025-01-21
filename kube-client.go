@@ -323,6 +323,7 @@ func (kube *KubeClient) getTraefikConfiguration() (*traefikconfig.Configuration,
 						EntryPoints: []string{Config.Traefik.HTTPS.Entrypoint.Name},
 						Rule:        fmt.Sprintf("Host(`%v`)", currentHostname),
 						Service:     currentService.HTTPSServiceName,
+						TLS:         &traefikconfig.RouterTLSConfig{},
 					}
 				} else {
 					log.Printf("@W GetIngresses: Unsupported annotation option %v=%v", LableSSLForwardType, SSLForwardType)

@@ -166,10 +166,12 @@ func main() {
 	if Config.Debug {
 		log.Printf("@D Config %+v\n", Config)
 	}
-	if Config.Cluster.Ingress.Address == "" {
-		log.Println("@E Config option TOOC_CLUSTER_INGRESS_ADDRESS not defined - Exiting")
-		os.Exit(1)
-	}
+	/*
+		if Config.Cluster.Ingress.Address == "" {
+			log.Println("@E Config option TOOC_CLUSTER_INGRESS_ADDRESS not defined - Exiting")
+			os.Exit(1)
+		}
+	*/
 	Kubeconfig = Config.Cluster.Kubeconfig
 	if Kubeconfig == "" {
 		if home := homedir.HomeDir(); home != "" {
