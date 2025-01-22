@@ -280,7 +280,7 @@ func (kube *KubeClient) getTraefikConfiguration() (*traefikconfig.Configuration,
 
 		ip := Config.Cluster.Ingress.Address
 		// https://pkg.go.dev/k8s.io/api/networking/v1#Ingress
-		if len(ingress.Status.LoadBalancer.Ingress) > 0 {
+		if len(Config.Cluster.Ingress.Address) == 0 {
 			ip = ingress.Status.LoadBalancer.Ingress[0].IP
 		} else {
 			log.Printf("@I getTraefikConfiguration: ingress %v %v did not contain loadbalancer IP, reverting to default\n", ingress.ObjectMeta.Namespace, ingress.ObjectMeta.Name)
