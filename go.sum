@@ -146,6 +146,8 @@ github.com/go-acme/lego/v4 v4.20.4 h1:yCQGBX9jOfMbriEQUocdYm7EBapdTp8nLXYG8k6SqS
 github.com/go-acme/lego/v4 v4.20.4/go.mod h1:foauPlhnhoq8WUphaWx5U04uDc+JGhk4ZZtPz/Vqsjg=
 github.com/go-acme/lego/v4 v4.21.0 h1:arEW+8o5p7VI8Bk1kr/PDlgD1DrxtTH1gJ4b7mehL8o=
 github.com/go-acme/lego/v4 v4.21.0/go.mod h1:HrSWzm3Ckj45Ie3i+p1zKVobbQoMOaGu9m4up0dUeDI=
+github.com/go-acme/lego/v4 v4.22.2 h1:ck+HllWrV/rZGeYohsKQ5iKNnU/WAZxwOdiu6cxky+0=
+github.com/go-acme/lego/v4 v4.22.2/go.mod h1:E2FndyI3Ekv0usNJt46mFb9LVpV/XBYT+4E3tz02Tzo=
 github.com/go-gl/glfw v0.0.0-20190409004039-e6da0acd62b1/go.mod h1:vR7hzQXu2zJy9AVAgeJqvqgH9Q5CA+iKCZ2gyEVpxRU=
 github.com/go-gl/glfw/v3.3/glfw v0.0.0-20191125211704-12ad95a8df72/go.mod h1:tQ2UAYgL5IevRw8kRxooKSPJfGvJ9fJQFa0TUsXzTg8=
 github.com/go-gl/glfw/v3.3/glfw v0.0.0-20200222043503-6f7a984d4dc4/go.mod h1:tQ2UAYgL5IevRw8kRxooKSPJfGvJ9fJQFa0TUsXzTg8=
@@ -605,6 +607,8 @@ github.com/traefik/paerser v0.2.0 h1:zqCLGSXoNlcBd+mzqSCLjon/I6phqIjeJL2xFB2ysgQ
 github.com/traefik/paerser v0.2.0/go.mod h1:afzaVcgF8A+MpTnPG4wBr4whjanCSYA6vK5RwaYVtRc=
 github.com/traefik/paerser v0.2.1 h1:LFgeak1NmjEHF53c9ENdXdL1UMkF/lD5t+7Evsz4hH4=
 github.com/traefik/paerser v0.2.1/go.mod h1:7BBDd4FANoVgaTZG+yh26jI6CA2nds7D/4VTEdIsh24=
+github.com/traefik/paerser v0.2.2 h1:cpzW/ZrQrBh3mdwD/jnp6aXASiUFKOVr6ldP+keJTcQ=
+github.com/traefik/paerser v0.2.2/go.mod h1:7BBDd4FANoVgaTZG+yh26jI6CA2nds7D/4VTEdIsh24=
 github.com/traefik/traefik/v3 v3.0.0-beta3 h1:Gv720qGsxEG25dO+VZSKErTFGfIOCnGdgEVXju7eExM=
 github.com/traefik/traefik/v3 v3.0.0-beta3/go.mod h1:5Lyj46aNeKwDqs3wbapdx4t8fVTkAUSTQjGoMa/qgd8=
 github.com/traefik/traefik/v3 v3.0.0 h1:5QehwnFdbTMvLW0WZFw47YKD3i9WO5L5e/l0n/cJ/V0=
@@ -627,6 +631,8 @@ github.com/traefik/traefik/v3 v3.3.2 h1:xJ/EEIZ7wzGLHItZXH5GodB8Cg+/Iqttzs1r+2AF
 github.com/traefik/traefik/v3 v3.3.2/go.mod h1:3ls9bNiJkBTReV+Ais3qmR3sjQNEKbosK86rg//yNAQ=
 github.com/traefik/traefik/v3 v3.3.3 h1:Yfxwl+LIG9Dotgyy1uxKcA7ZhaDbnHj8iZpAuDXe1Qg=
 github.com/traefik/traefik/v3 v3.3.3/go.mod h1:3ls9bNiJkBTReV+Ais3qmR3sjQNEKbosK86rg//yNAQ=
+github.com/traefik/traefik/v3 v3.3.4 h1:U9gc+aYMMnDCiaWgEc8YKc3MIwfMKwQfqRrfF7VFGOI=
+github.com/traefik/traefik/v3 v3.3.4/go.mod h1:Zml3KqgpxNEKFh/jNHcLQm9ehJKNKIulLLQbbPQbp6s=
 github.com/unrolled/render v1.0.2 h1:dGS3EmChQP3yOi1YeFNO/Dx+MbWZhdvhQJTXochM5bs=
 github.com/unrolled/render v1.0.2/go.mod h1:gN9T0NhL4Bfbwu8ann7Ry/TGHYfosul+J0obPf6NBdM=
 github.com/urfave/cli v1.20.0/go.mod h1:70zkFmudgCuE/ngEzBv17Jvp/497gISqfk5gWijbERA=
