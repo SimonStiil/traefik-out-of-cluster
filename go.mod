@@ -5,7 +5,7 @@ go 1.24.0
 require (
 	github.com/prometheus/client_golang v1.22.0
 	github.com/spf13/viper v1.20.1
-	github.com/traefik/traefik/v3 v3.3.7
+	github.com/traefik/traefik/v3 v3.4.0
 	k8s.io/apimachinery v0.33.0
 	k8s.io/client-go v0.33.0
 )
