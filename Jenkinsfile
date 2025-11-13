@@ -60,7 +60,7 @@ podTemplate(yaml: '''
     stage('checkout SCM') {  
       scmData = checkout scm
       gitCommitMessage = sh(returnStdout: true, script: "git log --format=%B -n 1 ${scmData.GIT_COMMIT}").trim()
-      gitMap = scmGetOrgRepo scmData.GIT_URL
+      def gitMap = scmGetOrgRepo scmData.GIT_URL
       githubWebhookManager gitMap: gitMap, webhookTokenId: 'jenkins-webhook-repo-cleanup'
       properties = readProperties file: 'package.env'
     }
@@ -87,10 +87,16 @@ podTemplate(yaml: '''
         }
       }
     }
+    String name
+    if (isMainBranch()){
+      pushName = "\"name=${properties.PACKAGE_DESTINATION}/${properties.PACKAGE_NAME}:$BRANCH_NAME,${properties.PACKAGE_DESTINATION}/${properties.PACKAGE_NAME}:latest\""
+    } else {
+      pushName = "name=${properties.PACKAGE_DESTINATION}/${properties.PACKAGE_NAME}:$BRANCH_NAME"
+    }
     if ( !gitCommitMessage.startsWith("renovate/") || ! gitCommitMessage.startsWith("WIP") ) {
       container('buildkit') {
         stage('Build Docker Image') {
-          withEnv(["GIT_COMMIT=${scmData.GIT_COMMIT}", "PACKAGE_NAME=${properties.PACKAGE_NAME}", "PACKAGE_CONTAINER_PLATFORMS=${properties.PACKAGE_CONTAINER_PLATFORMS}", "PACKAGE_DESTINATION=${properties.PACKAGE_DESTINATION}", "PACKAGE_CONTAINER_SOURCE=${properties.PACKAGE_CONTAINER_SOURCE}", "GIT_BRANCH=${BRANCH_NAME}"]) {
+          withEnv(["GIT_COMMIT=${scmData.GIT_COMMIT}", "PUSH_NAME=${pushName}", "PACKAGE_NAME=${properties.PACKAGE_NAME}", "PACKAGE_CONTAINER_PLATFORMS=${properties.PACKAGE_CONTAINER_PLATFORMS}", "PACKAGE_DESTINATION=${properties.PACKAGE_DESTINATION}", "PACKAGE_CONTAINER_SOURCE=${properties.PACKAGE_CONTAINER_SOURCE}", "GIT_BRANCH=${BRANCH_NAME}"]) {
             sh '''
               buildctl --addr 'tcp://buildkitd:1234'\
               --tlscacert /certs/client/ca.crt \
@@ -102,7 +108,7 @@ podTemplate(yaml: '''
               --local context=$(pwd) --local dockerfile=$(pwd) \
               --import-cache $PACKAGE_DESTINATION/$PACKAGE_NAME:buildcache \
               --export-cache $PACKAGE_DESTINATION/$PACKAGE_NAME:buildcache \
-              --output=type=image,name=$PACKAGE_DESTINATION/$PACKAGE_NAME:$BRANCH_NAME,push=true,oci-mediatypes=true,annotation.org.opencontainers.image.description="Build based on $PACKAGE_CONTAINER_SOURCE/commit/$GIT_COMMIT",annotation.org.opencontainers.image.revision=$GIT_COMMIT,annotation.org.opencontainers.image.version=$GIT_BRANCH,annotation.org.opencontainers.image.source="https://github.com/SimonStiil/cfdyndns",annotation.org.opencontainers.image.licenses=GPL-2.0-only
+              --output type=image,$PUSH_NAME,push=true,annotation.org.opencontainers.image.description="Build based on $PACKAGE_CONTAINER_SOURCE/commit/$GIT_COMMIT",annotation.org.opencontainers.image.revision=$GIT_COMMIT,annotation.org.opencontainers.image.version=$GIT_BRANCH,annotation.org.opencontainers.image.source=$PACKAGE_CONTAINER_SOURCE,annotation.org.opencontainers.image.licenses=GPL-2.0-only
               '''
           }
         }
