@@ -193,11 +193,13 @@ func main() {
 	DynamicConfig.SetDefault("Prometheus.Enabled", true)
 	DynamicConfig.SetDefault("Prometheus.Endpoint", "/metrics")
 	DynamicConfig.SetDefault("Health.Endpoint", "/health")
+	DynamicConfig.SetEnvPrefix("tooc")
 	DynamicConfig.AutomaticEnv()
-
-	for _, key := range DynamicConfig.AllKeys() {
-		DynamicConfig.BindEnv(key, "TOOC_"+strings.ToUpper(strings.ReplaceAll(key, ".", "_")))
-	}
+	/*
+		for _, key := range DynamicConfig.AllKeys() {
+			DynamicConfig.BindEnv(key, "TOOC_"+strings.ToUpper(strings.ReplaceAll(key, ".", "_")))
+		}
+	*/
 	DynamicConfig.Unmarshal(&Config)
 	if Config.Debug {
 		log.Println("@D viper keys:")
