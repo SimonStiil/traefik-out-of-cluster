@@ -25,35 +25,6 @@ type ChildController struct {
 	lastConfig *traefikconfig.Configuration
 }
 
-// extractNamespaceFromURL extracts a namespace identifier from a URL
-// Examples:
-//   - http://k3s.stiil.dk:8080 -> k3s
-//   - http://cluster-prod.example.com:8080 -> cluster-prod
-//   - http://192.168.1.10:8080 -> 192-168-1-10
-func extractNamespaceFromURL(url string) string {
-	// Remove protocol
-	url = strings.TrimPrefix(url, "http://")
-	url = strings.TrimPrefix(url, "https://")
-
-	// Split by : to remove port
-	parts := strings.Split(url, ":")
-	host := parts[0]
-
-	// If it's an IP address, replace dots with dashes
-	if strings.Count(host, ".") >= 3 {
-		// Likely an IP address
-		return strings.ReplaceAll(host, ".", "-")
-	}
-
-	// If it's a hostname, extract the most significant part (first subdomain)
-	hostParts := strings.Split(host, ".")
-	if len(hostParts) > 0 {
-		return hostParts[0]
-	}
-
-	return "unknown"
-}
-
 // FetchConfiguration fetches the Traefik configuration from a child controller
 func (c *ChildController) FetchConfiguration(ctx context.Context) (*traefikconfig.Configuration, error) {
 	if Config.Debug {
@@ -142,9 +113,18 @@ func (c *ChildController) FetchConfiguration(ctx context.Context) (*traefikconfi
 
 // prefixConfigurationNames adds a namespace prefix to all service and router names
 // to prevent naming conflicts when merging multiple configurations
+// Format: tooc-{namespace}-{original-name-without-tooc}
 func prefixConfigurationNames(config *traefikconfig.Configuration, namespace string) *traefikconfig.Configuration {
 	if config == nil {
 		return nil
+	}
+
+	// Helper to reformat names: tooc-http-0 -> tooc-namespace-http-0
+	renameFn := func(name string) string {
+		// Remove "tooc-" prefix if present
+		name = strings.TrimPrefix(name, CommonName+"-")
+		// Add namespace: tooc-namespace-originalname
+		return fmt.Sprintf("%s-%s-%s", CommonName, namespace, name)
 	}
 
 	prefixed := &traefikconfig.Configuration{
@@ -169,29 +149,29 @@ func prefixConfigurationNames(config *traefikconfig.Configuration, namespace str
 	// Prefix HTTP services
 	if config.HTTP != nil {
 		for name, service := range config.HTTP.Services {
-			prefixedName := fmt.Sprintf("%s-%s", namespace, name)
+			prefixedName := renameFn(name)
 			prefixed.HTTP.Services[prefixedName] = service
 		}
 
 		// Prefix HTTP routers and update service references
 		for name, router := range config.HTTP.Routers {
-			prefixedName := fmt.Sprintf("%s-%s", namespace, name)
+			prefixedName := renameFn(name)
 			prefixedRouter := *router // Copy router
 			if router.Service != "" {
-				prefixedRouter.Service = fmt.Sprintf("%s-%s", namespace, router.Service)
+				prefixedRouter.Service = renameFn(router.Service)
 			}
 			prefixed.HTTP.Routers[prefixedName] = &prefixedRouter
 		}
 
 		// Prefix HTTP middlewares
 		for name, middleware := range config.HTTP.Middlewares {
-			prefixedName := fmt.Sprintf("%s-%s", namespace, name)
+			prefixedName := renameFn(name)
 			prefixed.HTTP.Middlewares[prefixedName] = middleware
 		}
 
 		// Prefix HTTP servers transports
 		for name, transport := range config.HTTP.ServersTransports {
-			prefixedName := fmt.Sprintf("%s-%s", namespace, name)
+			prefixedName := renameFn(name)
 			prefixed.HTTP.ServersTransports[prefixedName] = transport
 		}
 	}
@@ -199,23 +179,23 @@ func prefixConfigurationNames(config *traefikconfig.Configuration, namespace str
 	// Prefix TCP services
 	if config.TCP != nil {
 		for name, service := range config.TCP.Services {
-			prefixedName := fmt.Sprintf("%s-%s", namespace, name)
+			prefixedName := renameFn(name)
 			prefixed.TCP.Services[prefixedName] = service
 		}
 
 		// Prefix TCP routers and update service references
 		for name, router := range config.TCP.Routers {
-			prefixedName := fmt.Sprintf("%s-%s", namespace, name)
+			prefixedName := renameFn(name)
 			prefixedRouter := *router // Copy router
 			if router.Service != "" {
-				prefixedRouter.Service = fmt.Sprintf("%s-%s", namespace, router.Service)
+				prefixedRouter.Service = renameFn(router.Service)
 			}
 			prefixed.TCP.Routers[prefixedName] = &prefixedRouter
 		}
 
 		// Prefix TCP middlewares
 		for name, middleware := range config.TCP.Middlewares {
-			prefixedName := fmt.Sprintf("%s-%s", namespace, name)
+			prefixedName := renameFn(name)
 			prefixed.TCP.Middlewares[prefixedName] = middleware
 		}
 	}
@@ -223,16 +203,16 @@ func prefixConfigurationNames(config *traefikconfig.Configuration, namespace str
 	// Prefix UDP services
 	if config.UDP != nil {
 		for name, service := range config.UDP.Services {
-			prefixedName := fmt.Sprintf("%s-%s", namespace, name)
+			prefixedName := renameFn(name)
 			prefixed.UDP.Services[prefixedName] = service
 		}
 
 		// Prefix UDP routers and update service references
 		for name, router := range config.UDP.Routers {
-			prefixedName := fmt.Sprintf("%s-%s", namespace, name)
+			prefixedName := renameFn(name)
 			prefixedRouter := *router // Copy router
 			if router.Service != "" {
-				prefixedRouter.Service = fmt.Sprintf("%s-%s", namespace, router.Service)
+				prefixedRouter.Service = renameFn(router.Service)
 			}
 			prefixed.UDP.Routers[prefixedName] = &prefixedRouter
 		}
@@ -313,10 +293,9 @@ func mergeConfigurations(configs ...*traefikconfig.Configuration) *traefikconfig
 func GetAggregatedConfiguration(ctx context.Context, children []ChildController, localConfig *traefikconfig.Configuration) (*traefikconfig.Configuration, error) {
 	configs := make([]*traefikconfig.Configuration, 0, len(children)+1)
 
-	// Add local configuration with "local" namespace
+	// Add local configuration without additional prefix (already has CommonName prefix)
 	if localConfig != nil {
-		prefixedLocal := prefixConfigurationNames(localConfig, "local")
-		configs = append(configs, prefixedLocal)
+		configs = append(configs, localConfig)
 	}
 
 	// Fetch and prefix child configurations
@@ -328,8 +307,7 @@ func GetAggregatedConfiguration(ctx context.Context, children []ChildController,
 			continue
 		}
 
-		namespace := extractNamespaceFromURL(child.URL)
-		prefixedConfig := prefixConfigurationNames(childConfig, namespace)
+		prefixedConfig := prefixConfigurationNames(childConfig, child.Name)
 		configs = append(configs, prefixedConfig)
 	}
 
