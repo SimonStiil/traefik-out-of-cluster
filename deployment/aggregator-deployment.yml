@@ -1,0 +1,111 @@
+---
+# ConfigMap with organization CA certificate
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: organization-ca
+  namespace: traefik-out-of-cluster
+data:
+  # Replace this with your actual CA certificate
+  root.crt: |
+    -----BEGIN CERTIFICATE-----
+    MIIDXTCCAkWgAwIBAgIJAKJ5CzKZGPRqMA0GCSqGSIb3DQEBCwUAMEUxCzAJBgNV
+    BAYTAkRLMRMwEQYDVQQIDApTb21lLVN0YXRlMSEwHwYDVQQKDBhJbnRlcm5ldCBX
+    aWRnaXRzIFB0eSBMdGQwHhcNMjMwMTAxMDAwMDAwWhcNMzMwMTAxMDAwMDAwWjBF
+    # ... rest of your CA certificate ...
+    -----END CERTIFICATE-----
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: traefik-out-of-cluster
+  namespace: traefik-out-of-cluster
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: traefik-out-of-cluster
+  template:
+    metadata:
+      labels:
+        app: traefik-out-of-cluster
+    spec:
+      containers:
+      - name: agent
+        image: simonstiil/traefik-out-of-cluster:main
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8080
+        env:
+        - name: TOOC_CLUSTER_INGRESS_ALT_HTTP_PORT
+          value: "7080"
+        - name: TOOC_CLUSTER_INGRESS_ALT_HTTPS_PORT
+          value: "7443"
+        - name: TOOC_CLUSTER_INGRESS_ADDRESS
+          value: 192.168.20
+        
+        # Child controller 1 - K3s cluster
+        - name: TOOC_CHILDREN_0_NAME
+          value: "dev-cluster"
+        - name: TOOC_CHILDREN_0_URL
+          value: "https://traefik-out-of-cluster.dev.example.com/"
+        - name: TOOC_CHILDREN_0_TIMEOUT
+          value: "15"
+        - name: TOOC_CHILDREN_0_ROOTCAFILE
+          value: "/etc/ssl/certs/org-root.crt"
+        
+        # Child controller 2 - Production cluster
+        - name: TOOC_CHILDREN_1_NAME
+          value: "prod-cluster"
+        - name: TOOC_CHILDREN_1_URL
+          value: "https://traefik-out-of-cluster.prod.example.com/"
+        - name: TOOC_CHILDREN_1_TIMEOUT
+          value: "15"
+        - name: TOOC_CHILDREN_1_ROOTCAFILE
+          value: "/etc/ssl/certs/org-root.crt"
+        
+        volumeMounts:
+        - name: ca-cert
+          mountPath: /etc/ssl/certs
+          readOnly: true
+      
+      volumes:
+      - name: ca-cert
+        configMap:
+          name: organization-ca
+      serviceAccountName: ro-ingress-services-routes
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: traefik-out-of-cluster
+  namespace: traefik-out-of-cluster
+spec:
+  selector:
+    app: traefik-out-of-cluster
+  ports:
+    - protocol: TCP
+      port: 8080
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: traefik-out-of-cluster
+  namespace: traefik-out-of-cluster
+  annotations:
+    kubernetes.io/ingress.class: traefik
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls.options: traefik-out-of-cluster-mtls@kubernetescrd
+spec:
+  rules:
+  - host: traefik-out-of-cluster.k3s.stiil.dk
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: traefik-out-of-cluster
+            port:
+              number: 8080
