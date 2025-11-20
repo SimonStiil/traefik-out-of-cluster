@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -70,6 +71,7 @@ func HealthActuator(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(reply)
+	return
 }
 
 func MainHandler(w http.ResponseWriter, r *http.Request) {
@@ -116,6 +118,7 @@ func MainHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(finalConfig)
+	return
 }
 
 type ConfigType struct {
@@ -193,14 +196,67 @@ func main() {
 	DynamicConfig.SetDefault("Prometheus.Enabled", true)
 	DynamicConfig.SetDefault("Prometheus.Endpoint", "/metrics")
 	DynamicConfig.SetDefault("Health.Endpoint", "/health")
-	DynamicConfig.SetEnvPrefix("tooc")
 	DynamicConfig.AutomaticEnv()
-	/*
-		for _, key := range DynamicConfig.AllKeys() {
-			DynamicConfig.BindEnv(key, "TOOC_"+strings.ToUpper(strings.ReplaceAll(key, ".", "_")))
-		}
-	*/
+
+	for _, key := range DynamicConfig.AllKeys() {
+		DynamicConfig.BindEnv(key, "TOOC_"+strings.ToUpper(strings.ReplaceAll(key, ".", "_")))
+	}
 	DynamicConfig.Unmarshal(&Config)
+
+	// Load child controller configurations from environment variables
+	childConfigs := make(map[int]*ChildControllerConfig)
+	for _, env := range os.Environ() {
+		if strings.HasPrefix(env, "TOOC_CHILDREN_") {
+			parts := strings.SplitN(env, "=", 2)
+			if len(parts) != 2 {
+				continue
+			}
+			key := parts[0]
+			value := parts[1]
+
+			// Extract index and field from TOOC_CHILDREN_0_NAME format
+			after := strings.TrimPrefix(key, "TOOC_CHILDREN_")
+			tokens := strings.SplitN(after, "_", 2)
+			if len(tokens) != 2 {
+				continue
+			}
+
+			index, err := strconv.Atoi(tokens[0])
+			if err != nil {
+				continue
+			}
+
+			field := tokens[1]
+
+			if childConfigs[index] == nil {
+				childConfigs[index] = &ChildControllerConfig{}
+			}
+
+			switch field {
+			case "NAME":
+				childConfigs[index].Name = value
+			case "URL":
+				childConfigs[index].URL = value
+			case "TIMEOUT":
+				if timeout, err := strconv.Atoi(value); err == nil {
+					childConfigs[index].Timeout = timeout
+				}
+			case "ROOTCAFILE":
+				childConfigs[index].RootCAFile = value
+			}
+		}
+	}
+
+	// Add child configs to Config in order
+	for i := 0; i < len(childConfigs); i++ {
+		if childConfig, ok := childConfigs[i]; ok && childConfig.Name != "" && childConfig.URL != "" {
+			Config.Children = append(Config.Children, *childConfig)
+			if Config.Debug {
+				log.Printf("@D Loaded child config %d: %+v\n", i, *childConfig)
+			}
+		}
+	}
+
 	if Config.Debug {
 		log.Println("@D viper keys:")
 		for _, key := range DynamicConfig.AllKeys() {
