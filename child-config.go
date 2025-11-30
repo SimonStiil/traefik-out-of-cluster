@@ -139,10 +139,6 @@ func prefixConfigurationNames(config *traefikconfig.Configuration, namespace str
 			Routers:     make(map[string]*traefikconfig.TCPRouter),
 			Middlewares: make(map[string]*traefikconfig.TCPMiddleware),
 		},
-		UDP: &traefikconfig.UDPConfiguration{
-			Services: make(map[string]*traefikconfig.UDPService),
-			Routers:  make(map[string]*traefikconfig.UDPRouter),
-		},
 		TLS: config.TLS, // TLS config typically doesn't need prefixing
 	}
 
@@ -200,24 +196,6 @@ func prefixConfigurationNames(config *traefikconfig.Configuration, namespace str
 		}
 	}
 
-	// Prefix UDP services
-	if config.UDP != nil {
-		for name, service := range config.UDP.Services {
-			prefixedName := renameFn(name)
-			prefixed.UDP.Services[prefixedName] = service
-		}
-
-		// Prefix UDP routers and update service references
-		for name, router := range config.UDP.Routers {
-			prefixedName := renameFn(name)
-			prefixedRouter := *router // Copy router
-			if router.Service != "" {
-				prefixedRouter.Service = renameFn(router.Service)
-			}
-			prefixed.UDP.Routers[prefixedName] = &prefixedRouter
-		}
-	}
-
 	return prefixed
 }
 
@@ -234,10 +212,6 @@ func mergeConfigurations(configs ...*traefikconfig.Configuration) *traefikconfig
 			Services:    make(map[string]*traefikconfig.TCPService),
 			Routers:     make(map[string]*traefikconfig.TCPRouter),
 			Middlewares: make(map[string]*traefikconfig.TCPMiddleware),
-		},
-		UDP: &traefikconfig.UDPConfiguration{
-			Services: make(map[string]*traefikconfig.UDPService),
-			Routers:  make(map[string]*traefikconfig.UDPRouter),
 		},
 	}
 
@@ -272,16 +246,6 @@ func mergeConfigurations(configs ...*traefikconfig.Configuration) *traefikconfig
 			}
 			for name, middleware := range config.TCP.Middlewares {
 				merged.TCP.Middlewares[name] = middleware
-			}
-		}
-
-		// Merge UDP
-		if config.UDP != nil {
-			for name, service := range config.UDP.Services {
-				merged.UDP.Services[name] = service
-			}
-			for name, router := range config.UDP.Routers {
-				merged.UDP.Routers[name] = router
 			}
 		}
 	}
