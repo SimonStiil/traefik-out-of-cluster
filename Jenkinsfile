@@ -9,7 +9,7 @@ podTemplate(yaml: '''
     spec:
       containers:
       - name: buildkit
-        image: moby/buildkit:v0.27.1-rootless # renovate
+        image: moby/buildkit:v0.28.1-rootless # renovate
         command:
         - /bin/sh
         tty: true
@@ -19,7 +19,7 @@ podTemplate(yaml: '''
         - name: certs
           mountPath: /certs/client
       - name: golang
-        image: golang:1.26.0-alpine # renovate
+        image: golang:1.26.1-alpine # renovate
         command:
         - sleep
         args: 
